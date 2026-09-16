@@ -47,6 +47,20 @@ async function api(req, res, url) {
   if (req.method === "DELETE" && /^\/api\/custom-fields\/[^/]+$/.test(url.pathname)) { run("DELETE FROM custom_fields WHERE id=? AND organization_id=?",[url.pathname.split("/").pop(),user.organization_id]); return reply(res,200,{ok:true}); }
   if (req.method === "GET" && url.pathname === "/api/appointments") return reply(res,200,{appointments:all(`SELECT a.*,c.first_name,c.last_name,c.email,c.phone FROM appointments a JOIN clients c ON c.id=a.client_id WHERE a.organization_id=? ORDER BY a.starts_at DESC`,[user.organization_id])});
   if (req.method === "POST" && url.pathname === "/api/appointments") { const input=await body(req); if(!input.clientId||!input.title||!input.startsAt)return reply(res,400,{error:"Client, objet et date obligatoires"}); const appointmentId=id(); run("INSERT INTO appointments(id,organization_id,client_id,title,starts_at,ends_at,location,notes,confirmation_token) VALUES(?,?,?,?,?,?,?,?,?)",[appointmentId,user.organization_id,input.clientId,input.title,input.startsAt,input.endsAt||null,input.location||"",input.notes||"",token()]); audit(user,"create","appointment",appointmentId); return reply(res,201,{id:appointmentId}); }
+  if (req.method === "POST" && /^\/api\/appointments\/[^/]+\/send-confirmation$/.test(url.pathname)) {
+    const appointmentId=url.pathname.split("/")[3];
+    const item=one(`SELECT a.*,c.first_name,c.last_name,c.email,c.phone,c.email_opt_in,c.sms_opt_in,s.* FROM appointments a JOIN clients c ON c.id=a.client_id JOIN settings s ON s.organization_id=a.organization_id WHERE a.id=? AND a.organization_id=?`,[appointmentId,user.organization_id]);
+    if(!item)return reply(res,404,{error:"Rendez-vous introuvable"});
+    if(item.status==="cancelled")return reply(res,400,{error:"Ce rendez-vous est annulé"});
+    const start=new Date(item.starts_at),link=`${publicUrl(`/confirm/${item.confirmation_token}/yes`)} (annuler : ${publicUrl(`/confirm/${item.confirmation_token}/no`)})`;
+    const results=await dispatchReminder({client:item,settings:item,kind:"appointment",data:{date:start.toLocaleDateString("fr-FR"),heure:start.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}),lien:link}});
+    if(!results.length)return reply(res,400,{error:"Activez au moins un canal e-mail ou SMS dans Personnalisation"});
+    for(const message of results)run("INSERT INTO message_logs(id,organization_id,client_id,channel,kind,destination,status,provider_id) VALUES(?,?,?,?,?,?,?,?)",[id(),item.organization_id,item.client_id,message.channel,"appointment",message.destination,message.result.skipped?"skipped":"sent",message.result.id||null]);
+    if(results.every(message=>message.result.skipped))return reply(res,400,{error:"Le service e-mail/SMS n’est pas encore configuré"});
+    run("UPDATE appointments SET reminder_sent_at=? WHERE id=?",[iso(),item.id]);
+    audit(user,"send","appointment_confirmation",appointmentId,{manual:true,channels:results.map(message=>message.channel)});
+    return reply(res,200,{ok:true,channels:results.filter(message=>!message.result.skipped).map(message=>message.channel)});
+  }
   if (req.method === "GET" && url.pathname === "/api/invoices") return reply(res,200,{invoices:all(`SELECT i.*,c.first_name,c.last_name FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.organization_id=? ORDER BY i.created_at DESC`,[user.organization_id])});
   if (req.method === "POST" && url.pathname === "/api/invoices") { const input=await body(req); if(!input.clientId||!input.reference||!input.amount||!input.dueDate)return reply(res,400,{error:"Informations incomplètes"}); const invoiceId=id(); run("INSERT INTO invoices(id,organization_id,client_id,reference,amount_cents,due_date) VALUES(?,?,?,?,?,?)",[invoiceId,user.organization_id,input.clientId,input.reference,Math.round(Number(input.amount)*100),input.dueDate]); audit(user,"create","invoice",invoiceId); return reply(res,201,{id:invoiceId}); }
   if (req.method === "POST" && /^\/api\/invoices\/[^/]+\/paid$/.test(url.pathname)) { const invoiceId=url.pathname.split("/")[3]; run("UPDATE invoices SET status='paid',paid_at=? WHERE id=? AND organization_id=?",[iso(),invoiceId,user.organization_id]); return reply(res,200,{ok:true}); }
@@ -69,3 +83,8 @@ function handleStripeEvent(event){const object=event.data?.object||{},orgId=obje
 
 const types={".html":"text/html; charset=utf-8",".js":"text/javascript; charset=utf-8",".css":"text/css; charset=utf-8",".json":"application/json; charset=utf-8",".svg":"image/svg+xml",".webmanifest":"application/manifest+json"};
 createServer(async(req,res)=>{try{const url=new URL(req.url||"/",`http://${req.headers.host||"localhost"}`);if(url.pathname.startsWith("/api/")||url.pathname.startsWith("/confirm/"))return await api(req,res,url);const relative=url.pathname==="/"?"index.html":url.pathname.slice(1);const file=join(PUBLIC,relative);if(!file.startsWith(PUBLIC)||!existsSync(file))return reply(res,404,"Introuvable");res.writeHead(200,{"Content-Type":types[extname(file)]||"application/octet-stream","Cache-Control":relative==="index.html"?"no-cache":"public, max-age=3600"});res.end(readFileSync(file));}catch(error){console.error(error);reply(res,500,{error:process.env.NODE_ENV==="production"?"Une erreur est survenue":error.message});}}).listen(PORT,()=>console.log(`ClientFlow Pro — http://localhost:${PORT}`));
+
+// Le processus vérifie régulièrement les rappels afin que l'envoi automatique
+// fonctionne sans dépendre d'un service externe ou d'une action manuelle.
+setTimeout(()=>processReminders().catch(error=>console.error("Rappels automatiques :",error)),30_000).unref();
+setInterval(()=>processReminders().catch(error=>console.error("Rappels automatiques :",error)),5*60_000).unref();
