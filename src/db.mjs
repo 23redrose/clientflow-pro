@@ -71,6 +71,13 @@ CREATE TABLE IF NOT EXISTS message_logs (
   kind TEXT NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL,
   provider_id TEXT, error TEXT, sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS client_files (
+  id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL, mime_type TEXT NOT NULL, size INTEGER NOT NULL,
+  content BLOB NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS client_files_client_idx ON client_files(organization_id,client_id,created_at);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL, action TEXT NOT NULL,
@@ -78,6 +85,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `);
+
+// Migrations compatibles avec les bases déjà en production.
+for (const statement of [
+  "ALTER TABLE invoices ADD COLUMN document_type TEXT NOT NULL DEFAULT 'invoice'",
+  "ALTER TABLE invoices ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE invoices ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'",
+  "ALTER TABLE invoices ADD COLUMN tax_rate REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE invoices ADD COLUMN notes TEXT NOT NULL DEFAULT ''"
+]) {
+  try { db.exec(statement); } catch (error) { if (!String(error.message).includes("duplicate column")) throw error; }
+}
 
 export function one(sql, params = []) { return db.prepare(sql).get(...params); }
 export function all(sql, params = []) { return db.prepare(sql).all(...params); }
