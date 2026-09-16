@@ -1,0 +1,11 @@
+services:
+  clientflow:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - clientflow_data:/app/data
+volumes:
+  clientflow_data:

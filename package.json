@@ -1,0 +1,12 @@
+{
+  "name": "clientflow-pro",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "check": "node --check src/server.mjs && node --check src/db.mjs && node --check src/services.mjs && node --check public/app.js"
+  }
+}
