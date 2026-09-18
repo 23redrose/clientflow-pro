@@ -38,6 +38,8 @@ export async function createStripeCheckout({ organization, userEmail }) {
   if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID) throw new Error("Stripe n’est pas configuré");
   const suffix=randomBytes(6).toString("base64url").replace(/[^a-z]/gi,"").toLowerCase().slice(0,8).padEnd(8,"x");
   const body = new URLSearchParams({ mode: "subscription", "line_items[0][price]": process.env.STRIPE_PRICE_ID, "line_items[0][quantity]": "1", client_reference_id: organization.id, success_url: `${process.env.APP_URL}/?subscription=success`, cancel_url: `${process.env.APP_URL}/?subscription=cancelled`, "metadata[organization_id]": organization.id, integration_identifier:`clientflow_${suffix}` });
+  const trialEnd=Math.floor(new Date(organization.trial_ends_at).getTime()/1000);
+  if(organization.plan_status==="trialing"&&trialEnd>Math.floor(Date.now()/1000)+172800)body.set("subscription_data[trial_end]",String(trialEnd));
   if(organization.stripe_customer_id)body.set("customer",organization.stripe_customer_id);else body.set("customer_email",userEmail);
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", { method: "POST", headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" }, body });
   const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error?.message || `Stripe ${response.status}`); return result;

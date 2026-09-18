@@ -109,6 +109,10 @@ for (const statement of [
   try { db.exec(statement); } catch (error) { if (!String(error.message).includes("duplicate column")) throw error; }
 }
 
+// La version commerciale inclut un essai unique de 10 jours, y compris pour
+// les comptes d'essai créés avant cette mise à jour.
+db.exec("UPDATE organizations SET trial_ends_at=strftime('%Y-%m-%dT%H:%M:%fZ',created_at,'+10 days') WHERE plan_status='trialing' AND julianday(trial_ends_at)>julianday(created_at,'+10 days')");
+
 export function one(sql, params = []) { return db.prepare(sql).get(...params); }
 export function all(sql, params = []) { return db.prepare(sql).all(...params); }
 export function run(sql, params = []) { return db.prepare(sql).run(...params); }
