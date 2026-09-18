@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS password_resets (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS settings (
   organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
   brand_color TEXT NOT NULL DEFAULT '#0B695F', logo_url TEXT NOT NULL DEFAULT '',
@@ -93,6 +98,13 @@ for (const statement of [
   "ALTER TABLE invoices ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE invoices ADD COLUMN tax_rate REAL NOT NULL DEFAULT 0",
   "ALTER TABLE invoices ADD COLUMN notes TEXT NOT NULL DEFAULT ''"
+  ,"ALTER TABLE settings ADD COLUMN legal_name TEXT NOT NULL DEFAULT ''"
+  ,"ALTER TABLE settings ADD COLUMN legal_address TEXT NOT NULL DEFAULT ''"
+  ,"ALTER TABLE settings ADD COLUMN siret TEXT NOT NULL DEFAULT ''"
+  ,"ALTER TABLE settings ADD COLUMN vat_number TEXT NOT NULL DEFAULT ''"
+  ,"ALTER TABLE settings ADD COLUMN iban TEXT NOT NULL DEFAULT ''"
+  ,"ALTER TABLE settings ADD COLUMN payment_terms TEXT NOT NULL DEFAULT 'Paiement à réception'"
+  ,"ALTER TABLE settings ADD COLUMN support_email TEXT NOT NULL DEFAULT ''"
 ]) {
   try { db.exec(statement); } catch (error) { if (!String(error.message).includes("duplicate column")) throw error; }
 }
